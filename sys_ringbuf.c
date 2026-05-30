@@ -4,6 +4,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/uaccess.h>
 
 #define SYS_RINGBUF_NAME	"sys_ringbuf"
@@ -15,6 +16,7 @@ MODULE_DESCRIPTION("sys_ringbuf kernel module");
 MODULE_VERSION("0.1");
 static char storage[STORAGE_SIZE];
 static size_t storage_len;
+static DEFINE_MUTEX(sys_ringbuf_storage_lock);
 
 static dev_t dev_num;
 static struct class *sys_ringbuf_class;
@@ -35,41 +37,63 @@ static int sys_ringbuf_release(struct inode *inode, struct file *filp)
 static ssize_t sys_ringbuf_read(struct file *filp, char __user *buf,
 				size_t count, loff_t *ppos)
 {
+	ssize_t ret;
 	size_t to_copy;
 	size_t available;
 
 	if (!buf)
 		return -EINVAL;
 
-	if (*ppos >= storage_len)
-		return 0;
+	if (mutex_lock_interruptible(&sys_ringbuf_storage_lock))
+		return -ERESTARTSYS;
+
+	if (*ppos >= storage_len) {
+		ret = 0;
+		goto out;
+	}
 
 	available = storage_len - *ppos;
 	to_copy = min(count, available);
 
-	if (copy_to_user(buf, storage + *ppos, to_copy))
-		return -EFAULT;
+	if (copy_to_user(buf, storage + *ppos, to_copy)) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	*ppos += to_copy;
 	pr_info("sys_ringbuf: read %zu bytes\n", to_copy);
-	return to_copy;
+	ret = to_copy;
+
+out:
+	mutex_unlock(&sys_ringbuf_storage_lock);
+	return ret;
 }
 
 static ssize_t sys_ringbuf_write(struct file *filp, const char __user *buf,
 				 size_t count, loff_t *ppos)
 {
+	ssize_t ret;
 	size_t to_copy;
 
 	if (!buf)
 		return -EINVAL;
 
+	if (mutex_lock_interruptible(&sys_ringbuf_storage_lock))
+		return -ERESTARTSYS;
+
 	to_copy = min(count, (size_t)STORAGE_SIZE);
-	if (copy_from_user(storage, buf, to_copy))
-		return -EFAULT;
+	if (copy_from_user(storage, buf, to_copy)) {
+		ret = -EFAULT;
+		goto out;
+	}
 
 	storage_len = to_copy;
 	pr_info("sys_ringbuf: stored %zu bytes\n", to_copy);
-	return to_copy;
+	ret = to_copy;
+
+out:
+	mutex_unlock(&sys_ringbuf_storage_lock);
+	return ret;
 }
 
 static const struct file_operations sys_ringbuf_fops = {
