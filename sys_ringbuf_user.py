@@ -4,6 +4,11 @@ Userspace client for the sys_ringbuf kernel module.
 
 Requires the module loaded and /dev/sys_ringbuf present:
   make && sudo insmod sys_ringbuf.ko
+
+Examples:
+  python3 sys_ringbuf_user.py -w "hello"
+  python3 sys_ringbuf_user.py -r
+  python3 sys_ringbuf_user.py -rt "hello"
 """
 
 import argparse
@@ -73,26 +78,49 @@ def cmd_roundtrip(message: bytes) -> None:
         os.close(fd)
 
 
+def _message_bytes(words: list[str] | None, flag: str) -> bytes:
+    if not words:
+        print(f"error: {flag} requires a message", file=sys.stderr)
+        sys.exit(2)
+    return " ".join(words).encode()
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="sys_ringbuf userspace client")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_write = sub.add_parser("write", help="write a message to the driver buffer")
-    p_write.add_argument("message", help="text to store (max 512 bytes)")
-
-    sub.add_parser("read", help="read from the driver buffer")
-
-    p_trip = sub.add_parser("roundtrip", help="write then read on one fd")
-    p_trip.add_argument("message", help="text to store and read back")
+    parser = argparse.ArgumentParser(
+        description="sys_ringbuf userspace client",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="examples:\n"
+        '  %(prog)s -w "hello"\n'
+        "  %(prog)s -r\n"
+        '  %(prog)s -rt "hello"',
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "-r", "--read",
+        action="store_true",
+        help="read from the driver buffer",
+    )
+    group.add_argument(
+        "-w", "--write",
+        nargs="+",
+        metavar="MSG",
+        help="write a message to the driver buffer (max 512 bytes)",
+    )
+    group.add_argument(
+        "-rt", "--roundtrip",
+        nargs="+",
+        metavar="MSG",
+        help="write then read on one file descriptor",
+    )
 
     args = parser.parse_args()
 
-    if args.command == "write":
-        cmd_write(args.message.encode())
-    elif args.command == "read":
+    if args.read:
         cmd_read()
-    elif args.command == "roundtrip":
-        cmd_roundtrip(args.message.encode())
+    elif args.write is not None:
+        cmd_write(_message_bytes(args.write, "-w"))
+    else:
+        cmd_roundtrip(_message_bytes(args.roundtrip, "-rt"))
 
 
 if __name__ == "__main__":
