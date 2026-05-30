@@ -1,20 +1,17 @@
+#include <linux/cdev.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 
+#define SYS_RINGBUF_NAME	"sys_ringbuf"
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("unal");
 MODULE_DESCRIPTION("sys_ringbuf kernel module");
 MODULE_VERSION("0.1");
-
-/*
- * Step 1: file_operations — the callback table for a char device.
- *
- * When userspace later does open/read/write on /dev/sys_ringbuf, the VFS
- * dispatches to these functions. For now they only log; we have not
- * registered a device yet, so nothing calls them until the next step.
- */
+static dev_t dev_num;
+static struct cdev sys_ringbuf_cdev;
 
 static int sys_ringbuf_open(struct inode *inode, struct file *filp)
 {
@@ -52,13 +49,35 @@ static const struct file_operations sys_ringbuf_fops = {
 
 static int __init sys_ringbuf_init(void)
 {
-	pr_info("sys_ringbuf: module loaded (fops defined, not registered yet)\n");
+	int ret;
+
+	/* Ask the kernel for one char-device number (major + minor 0). */
+	ret = alloc_chrdev_region(&dev_num, 0, 1, SYS_RINGBUF_NAME);
+	if (ret < 0) {
+		pr_err("sys_ringbuf: alloc_chrdev_region failed (%d)\n", ret);
+		return ret;
+	}
+
+	cdev_init(&sys_ringbuf_cdev, &sys_ringbuf_fops);
+	sys_ringbuf_cdev.owner = THIS_MODULE;
+
+	ret = cdev_add(&sys_ringbuf_cdev, dev_num, 1);
+	if (ret < 0) {
+		pr_err("sys_ringbuf: cdev_add failed (%d)\n", ret);
+		unregister_chrdev_region(dev_num, 1);
+		return ret;
+	}
+
+	pr_info("sys_ringbuf: registered major=%u minor=%u\n",
+		MAJOR(dev_num), MINOR(dev_num));
 	return 0;
 }
 
 static void __exit sys_ringbuf_exit(void)
 {
-	pr_info("sys_ringbuf: module unloaded\n");
+	cdev_del(&sys_ringbuf_cdev);
+	unregister_chrdev_region(dev_num, 1);
+	pr_info("sys_ringbuf: unregistered\n");
 }
 
 module_init(sys_ringbuf_init);
