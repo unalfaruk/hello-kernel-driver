@@ -4,13 +4,18 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/uaccess.h>
 
 #define SYS_RINGBUF_NAME	"sys_ringbuf"
+#define STORAGE_SIZE		512
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("unal");
 MODULE_DESCRIPTION("sys_ringbuf kernel module");
 MODULE_VERSION("0.1");
+static char storage[STORAGE_SIZE];
+static size_t storage_len;
+
 static dev_t dev_num;
 static struct class *sys_ringbuf_class;
 static struct cdev sys_ringbuf_cdev;
@@ -37,8 +42,18 @@ static ssize_t sys_ringbuf_read(struct file *filp, char __user *buf,
 static ssize_t sys_ringbuf_write(struct file *filp, const char __user *buf,
 				 size_t count, loff_t *ppos)
 {
-	pr_info("sys_ringbuf: write (count=%zu)\n", count);
-	return count; /* pretend we accepted everything */
+	size_t to_copy;
+
+	if (!buf)
+		return -EINVAL;
+
+	to_copy = min(count, (size_t)STORAGE_SIZE);
+	if (copy_from_user(storage, buf, to_copy))
+		return -EFAULT;
+
+	storage_len = to_copy;
+	pr_info("sys_ringbuf: stored %zu bytes\n", to_copy);
+	return to_copy;
 }
 
 static const struct file_operations sys_ringbuf_fops = {
