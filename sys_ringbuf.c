@@ -35,8 +35,24 @@ static int sys_ringbuf_release(struct inode *inode, struct file *filp)
 static ssize_t sys_ringbuf_read(struct file *filp, char __user *buf,
 				size_t count, loff_t *ppos)
 {
-	pr_info("sys_ringbuf: read (count=%zu)\n", count);
-	return 0; /* no data yet */
+	size_t to_copy;
+	size_t available;
+
+	if (!buf)
+		return -EINVAL;
+
+	if (*ppos >= storage_len)
+		return 0;
+
+	available = storage_len - *ppos;
+	to_copy = min(count, available);
+
+	if (copy_to_user(buf, storage + *ppos, to_copy))
+		return -EFAULT;
+
+	*ppos += to_copy;
+	pr_info("sys_ringbuf: read %zu bytes\n", to_copy);
+	return to_copy;
 }
 
 static ssize_t sys_ringbuf_write(struct file *filp, const char __user *buf,
