@@ -75,8 +75,8 @@ The device is a file. Any program that reads/writes file descriptors can use it.
 
 ```bash
 echo -n "hello kernel" | sudo tee /dev/sys_ringbuf
-# or
-echo -n "hello kernel" | sudo dd of=/dev/sys_ringbuf
+# or (requires permission)
+echo "hello kernel" >> /dev/sys_ringbuf
 ```
 
 `-n` avoids appending a newline unless you want one.
